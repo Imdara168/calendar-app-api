@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model User {
+  id        Int      @id @default(autoincrement()) @map("id")
+  username  String   @unique @db.VarChar(255)
+  password  String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(6)
+  slug      String   @unique @db.VarChar(255)
+  fullname  String   @map("fulname") @db.VarChar(255)
+
+  events Event[]
+
+  @@map("users")
+}
+
+model Event {
+  id               Int      @id @default(autoincrement()) @map("id")
+  title            String   @db.VarChar(255)
+  description      String   @db.Text
+  date             String   @db.VarChar(10)
+  startTime        String   @map("start_time") @db.VarChar(5)
+  endTime          String   @map("end_time") @db.VarChar(5)
+  status           String   @db.VarChar(50)
+  category         String   @db.VarChar(50)
+  userLink         Int      @map("user_link")
+  eventAttendees   Json?    @map("event_attendees")
+  eventAttachments Json?    @map("event_attachments")
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.DateTime(6)
+
+  user User @relation(fields: [userLink], references: [id], onDelete: Cascade)
+
+  @@index([userLink], map: "IDX_events_user_link")
+  @@index([date], map: "IDX_events_date")
+  @@map("events")
+}
+
+model Report {
+  id             Int      @id @default(autoincrement()) @map("id")
+  date           String?  @db.VarChar(10)
+  uploadedReport String   @map("uploaded_report") @db.LongText
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(6)
+
+  @@map("report")
+}
+
+model Document {
+  id           Int      @id @default(autoincrement()) @map("id")
+  folderName   String   @map("folder_name") @db.VarChar(255)
+  fileName     String   @map("file_name") @db.VarChar(255)
+  uploadedFile String   @map("uploaded_file") @db.LongText
+  date         String?  @db.VarChar(10)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(6)
+
+  @@map("documents")
+}
