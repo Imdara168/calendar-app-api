@@ -9,6 +9,42 @@ import {
 } from 'typeorm';
 import { UserEntity } from '../users/user.entity';
 
+export type EventAttachment = {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileUrl: string;
+};
+
+const isEventAttachment = (value: unknown): value is EventAttachment => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  const attachment = value as Record<string, unknown>;
+
+  return (
+    typeof attachment.fileName === 'string' &&
+    typeof attachment.fileType === 'string' &&
+    typeof attachment.fileSize === 'number' &&
+    typeof attachment.fileUrl === 'string'
+  );
+};
+
+const parseEventAttachments = (value: string | null): EventAttachment[] => {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+    const attachments = Array.isArray(parsed) ? parsed : [parsed];
+    return attachments.filter(isEventAttachment);
+  } catch {
+    return [];
+  }
+};
+
 @Entity({ name: 'events' })
 export class CalendarEventEntity {
   @PrimaryGeneratedColumn({ name: 'id' })
@@ -46,32 +82,12 @@ export class CalendarEventEntity {
     type: 'longtext',
     nullable: true,
     transformer: {
-      to: (
-        value:
-          | {
-              fileName: string;
-              fileType: string;
-              fileSize: number;
-              fileUrl: string;
-            }[]
-          | null,
-      ) => (value && value.length > 0 ? JSON.stringify(value) : null),
-      from: (value: string | null) => {
-        if (!value) {
-          return [];
-        }
-
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [parsed];
-      },
+      to: (value: EventAttachment[] | null) =>
+        value && value.length > 0 ? JSON.stringify(value) : null,
+      from: (value: string | null) => parseEventAttachments(value),
     },
   })
-  attachments: {
-    fileName: string;
-    fileType: string;
-    fileSize: number;
-    fileUrl: string;
-  }[];
+  attachments: EventAttachment[];
 
   @ManyToOne(() => UserEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_link' })

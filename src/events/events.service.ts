@@ -4,8 +4,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CalendarEventEntity } from './calendar-event.entity';
+import { In, Repository } from 'typeorm';
+import { CalendarEventEntity, EventAttachment } from './calendar-event.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { UserEntity } from '../users/user.entity';
@@ -143,7 +143,22 @@ export class EventsService {
 
   async remove(userId: number, eventId: number) {
     const event = await this.getOwnedEvent(userId, eventId);
-    await this.eventsRepository.remove(event);
+    const fileUrlsToDelete = await this.getOrphanedAttachmentFileUrls(
+      userId,
+      eventId,
+      event.attachments,
+    );
+
+    await this.eventsRepository.delete(event.id);
+
+    if (fileUrlsToDelete.length > 0) {
+      await this.deleteReportsByFileUrls(userId, fileUrlsToDelete);
+      await this.documentsService.deleteUploadedFilesByUrls(
+        userId,
+        fileUrlsToDelete,
+      );
+    }
+
     return { success: true };
   }
 
@@ -198,42 +213,20 @@ export class EventsService {
   }
 
   private normalizeAttachments(
-    attachments:
-      | {
-          fileName: string;
-          fileType: string;
-          fileSize: number;
-          fileUrl: string;
-        }[]
-      | {
-          fileName: string;
-          fileType: string;
-          fileSize: number;
-          fileUrl: string;
-        }
-      | null
-      | undefined,
-  ) {
+    attachments: EventAttachment[] | EventAttachment | null | undefined,
+  ): EventAttachment[] {
     if (!attachments) {
       return [];
     }
 
     return (Array.isArray(attachments) ? attachments : [attachments]).filter(
-      (attachment) => attachment?.fileUrl,
+      (attachment) => this.hasFileUrl(attachment),
     );
   }
 
   private async syncAttachmentsToReports(
     userId: number,
-    attachments:
-      | {
-          fileName: string;
-          fileType: string;
-          fileSize: number;
-          fileUrl: string;
-        }[]
-      | null
-      | undefined,
+    attachments: EventAttachment[] | null | undefined,
     date: string,
   ) {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
@@ -293,11 +286,98 @@ export class EventsService {
 
     return reports.find((report) => {
       try {
-        const parsed = JSON.parse(report.uploadedReport);
-        return parsed?.fileUrl === fileUrl;
+        const parsed: unknown = JSON.parse(report.uploadedReport);
+        return this.isStoredReportReference(parsed)
+          ? parsed.fileUrl === fileUrl
+          : false;
       } catch {
         return report.uploadedReport === fileUrl;
       }
     });
+  }
+
+  private async getOrphanedAttachmentFileUrls(
+    userId: number,
+    eventId: number,
+    attachments: EventAttachment[] | null | undefined,
+  ) {
+    const normalizedAttachments = this.normalizeAttachments(attachments);
+
+    if (normalizedAttachments.length === 0) {
+      return [];
+    }
+
+    const otherEvents = await this.eventsRepository.find({
+      where: {
+        user: { id: userId },
+      },
+      relations: {
+        user: true,
+      },
+    });
+
+    const otherEventsWithoutCurrent = otherEvents.filter(
+      (event) => event.id !== eventId,
+    );
+
+    return normalizedAttachments
+      .map((attachment) => attachment.fileUrl)
+      .filter(
+        (fileUrl, index, fileUrls) =>
+          fileUrls.indexOf(fileUrl) === index &&
+          !otherEventsWithoutCurrent.some((event) =>
+            this.normalizeAttachments(event.attachments).some(
+              (attachment) => attachment.fileUrl === fileUrl,
+            ),
+          ),
+      );
+  }
+
+  private async deleteReportsByFileUrls(userId: number, fileUrls: string[]) {
+    const reports = await this.reportsRepository.find({
+      where: {
+        user: { id: userId },
+      },
+      relations: {
+        user: true,
+      },
+    });
+
+    const matchingReportIds = reports
+      .filter((report) => {
+        try {
+          const parsed: unknown = JSON.parse(report.uploadedReport);
+          return this.isStoredReportReference(parsed)
+            ? fileUrls.includes(parsed.fileUrl)
+            : false;
+        } catch {
+          return fileUrls.includes(report.uploadedReport);
+        }
+      })
+      .map((report) => report.id);
+
+    if (matchingReportIds.length === 0) {
+      return;
+    }
+
+    await this.reportsRepository.delete({
+      id: In(matchingReportIds),
+    });
+  }
+
+  private hasFileUrl(
+    attachment: EventAttachment | null | undefined,
+  ): attachment is EventAttachment {
+    return Boolean(attachment?.fileUrl);
+  }
+
+  private isStoredReportReference(
+    value: unknown,
+  ): value is { fileUrl: string } {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as Record<string, unknown>).fileUrl === 'string'
+    );
   }
 }
