@@ -70,7 +70,7 @@ describe('DocumentsService', () => {
     const user = { id: userId } as UserEntity;
 
     mockUsersRepository.findOne.mockResolvedValue(user);
-    
+
     // Simulate folder having one file but no placeholder
     const existingFile = {
       id: 2,
@@ -78,7 +78,7 @@ describe('DocumentsService', () => {
       fileName: 'file.txt',
       uploadedFile: '{"fileUrl":"url"}',
     } as DocumentEntity;
-    
+
     mockDocumentsRepository.find.mockResolvedValue([existingFile]);
     mockDocumentsRepository.create.mockReturnValue({
       user,
@@ -91,11 +91,13 @@ describe('DocumentsService', () => {
     await service.createFolder(userId, { folderName });
 
     // Expect create to have been called to create the placeholder
-    expect(mockDocumentsRepository.create).toHaveBeenCalledWith(expect.objectContaining({
-      folderName,
-      fileName: '',
-      uploadedFile: '',
-    }));
+    expect(mockDocumentsRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folderName,
+        fileName: '',
+        uploadedFile: '',
+      }),
+    );
     expect(mockDocumentsRepository.save).toHaveBeenCalled();
   });
 });

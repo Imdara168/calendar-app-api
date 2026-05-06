@@ -25,7 +25,12 @@ export class EventsService {
     private readonly documentsService: DocumentsService,
   ) {}
 
-  async findAll(userId: number, date?: string, startDate?: string, endDate?: string) {
+  async findAll(
+    userId: number,
+    date?: string,
+    startDate?: string,
+    endDate?: string,
+  ) {
     const events = await this.eventsRepository.find({
       where: {
         user: { id: userId },
@@ -118,10 +123,18 @@ export class EventsService {
       event.attachments = this.normalizeAttachments(dto.attachments);
     }
 
-    event.status = resolveEventStatus(event.date, event.startTime, event.endTime);
+    event.status = resolveEventStatus(
+      event.date,
+      event.startTime,
+      event.endTime,
+    );
 
     if (dto.attachments !== undefined || dto.date !== undefined) {
-      await this.syncAttachmentsToReports(userId, event.attachments, event.date);
+      await this.syncAttachmentsToReports(
+        userId,
+        event.attachments,
+        event.date,
+      );
     }
 
     const saved = await this.eventsRepository.save(event);
@@ -153,7 +166,11 @@ export class EventsService {
   }
 
   private async refreshStatus(event: CalendarEventEntity) {
-    const nextStatus = resolveEventStatus(event.date, event.startTime, event.endTime);
+    const nextStatus = resolveEventStatus(
+      event.date,
+      event.startTime,
+      event.endTime,
+    );
 
     if (nextStatus !== event.status) {
       event.status = nextStatus;
@@ -226,7 +243,10 @@ export class EventsService {
     }
 
     for (const attachment of this.normalizeAttachments(attachments)) {
-      const existing = await this.findReportByFileUrl(userId, attachment.fileUrl);
+      const existing = await this.findReportByFileUrl(
+        userId,
+        attachment.fileUrl,
+      );
 
       if (!existing) {
         const report = this.reportsRepository.create({

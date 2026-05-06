@@ -26,10 +26,14 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.slice(7);
 
     try {
-      const payload = await this.jwtService.verifyAsync<AuthenticatedUser>(token, {
-        secret:
-          this.configService.get<string>('JWT_SECRET') ?? 'calendar-secret-key',
-      });
+      const payload = await this.jwtService.verifyAsync<AuthenticatedUser>(
+        token,
+        {
+          secret:
+            this.configService.get<string>('JWT_SECRET') ??
+            'calendar-secret-key',
+        },
+      );
       request.user = payload;
       return true;
     } catch {

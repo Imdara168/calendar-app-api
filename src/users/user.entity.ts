@@ -17,10 +17,19 @@ export class UserEntity {
   @Column()
   password: string;
 
-  @Column({ name: 'reset_password_token', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'reset_password_token',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   resetPasswordToken?: string | null;
 
-  @Column({ name: 'reset_password_expires_at', type: 'datetime', nullable: true })
+  @Column({
+    name: 'reset_password_expires_at',
+    type: 'datetime',
+    nullable: true,
+  })
   resetPasswordExpiresAt?: Date | null;
 
   @CreateDateColumn({ name: 'created_at' })

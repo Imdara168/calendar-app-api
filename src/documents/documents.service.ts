@@ -135,7 +135,10 @@ export class DocumentsService implements OnModuleInit {
         return false;
       }
 
-      const payload = this.parseStoredDocument(document.uploadedFile, document.fileName);
+      const payload = this.parseStoredDocument(
+        document.uploadedFile,
+        document.fileName,
+      );
       return payload.fileUrl === fileUrl;
     });
 
@@ -383,10 +386,15 @@ export class DocumentsService implements OnModuleInit {
         return false;
       }
 
-      const payload = this.parseStoredDocument(document.uploadedFile, document.fileName);
+      const payload = this.parseStoredDocument(
+        document.uploadedFile,
+        document.fileName,
+      );
       const matchingEvent = events.find((event) =>
         Array.isArray(event.attachments)
-          ? event.attachments.some((attachment) => attachment?.fileUrl === payload.fileUrl)
+          ? event.attachments.some(
+              (attachment) => attachment?.fileUrl === payload.fileUrl,
+            )
           : false,
       );
 
@@ -422,12 +430,16 @@ export class DocumentsService implements OnModuleInit {
     }
 
     return Array.from(documentsByFolder.entries())
-      .map(([folderName, folderDocuments]) => this.serializeFolder(folderName, folderDocuments))
+      .map(([folderName, folderDocuments]) =>
+        this.serializeFolder(folderName, folderDocuments),
+      )
       .sort((left, right) => left.title.localeCompare(right.title));
   }
 
   private serializeFolder(folderName: string, documents: DocumentEntity[]) {
-    const actualFiles = documents.filter((document) => !this.isFolderPlaceholder(document));
+    const actualFiles = documents.filter(
+      (document) => !this.isFolderPlaceholder(document),
+    );
     const createdAt = documents.reduce((earliest, current) => {
       if (!earliest) {
         return current.createdAt;
@@ -445,7 +457,10 @@ export class DocumentsService implements OnModuleInit {
   }
 
   private serializeFile(document: DocumentEntity) {
-    const payload = this.parseStoredDocument(document.uploadedFile, document.fileName);
+    const payload = this.parseStoredDocument(
+      document.uploadedFile,
+      document.fileName,
+    );
 
     return {
       id: document.id,
@@ -461,19 +476,28 @@ export class DocumentsService implements OnModuleInit {
     };
   }
 
-  private parseStoredDocument(uploadedFile: string, fallbackFileName: string): ParsedDocumentPayload {
+  private parseStoredDocument(
+    uploadedFile: string,
+    fallbackFileName: string,
+  ): ParsedDocumentPayload {
     try {
       const parsed = JSON.parse(uploadedFile);
 
-      if (parsed && typeof parsed === 'object' && typeof parsed.fileUrl === 'string') {
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        typeof parsed.fileUrl === 'string'
+      ) {
         return {
           fileUrl: parsed.fileUrl,
           fileName:
-            typeof parsed.fileName === 'string' && parsed.fileName.trim().length > 0
+            typeof parsed.fileName === 'string' &&
+            parsed.fileName.trim().length > 0
               ? parsed.fileName
               : fallbackFileName || 'uploaded-file',
           fileType:
-            typeof parsed.fileType === 'string' && parsed.fileType.trim().length > 0
+            typeof parsed.fileType === 'string' &&
+            parsed.fileType.trim().length > 0
               ? parsed.fileType
               : this.detectFileType(parsed.fileUrl),
           fileSize:
@@ -519,14 +543,20 @@ export class DocumentsService implements OnModuleInit {
   }
 
   private isFolderPlaceholder(document: DocumentEntity) {
-    return document.fileName.trim() === '' && document.uploadedFile.trim() === '';
+    return (
+      document.fileName.trim() === '' && document.uploadedFile.trim() === ''
+    );
   }
 
   private parseStoredReport(uploadedReport: string) {
     try {
       const parsed = JSON.parse(uploadedReport);
 
-      if (parsed && typeof parsed === 'object' && typeof parsed.fileUrl === 'string') {
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        typeof parsed.fileUrl === 'string'
+      ) {
         return {
           fileUrl: parsed.fileUrl,
         };

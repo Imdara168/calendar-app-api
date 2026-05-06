@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { ReportEntity } from './report.entity';
@@ -121,7 +117,9 @@ export class ReportsService implements OnModuleInit {
       },
     });
     for (const event of events) {
-      const currentAttachments = Array.isArray(event.attachments) ? event.attachments : [];
+      const currentAttachments = Array.isArray(event.attachments)
+        ? event.attachments
+        : [];
       const nextAttachments = currentAttachments.filter(
         (attachment) => attachment?.fileUrl !== fileUrl,
       );
@@ -149,7 +147,9 @@ export class ReportsService implements OnModuleInit {
       const payload = this.parseStoredReport(report.uploadedReport);
       const matchingEvent = events.find((event) =>
         Array.isArray(event.attachments)
-          ? event.attachments.some((attachment) => attachment?.fileUrl === payload.fileUrl)
+          ? event.attachments.some(
+              (attachment) => attachment?.fileUrl === payload.fileUrl,
+            )
           : false,
       );
 
@@ -185,15 +185,21 @@ export class ReportsService implements OnModuleInit {
     try {
       const parsed = JSON.parse(uploadedReport);
 
-      if (parsed && typeof parsed === 'object' && typeof parsed.fileUrl === 'string') {
+      if (
+        parsed &&
+        typeof parsed === 'object' &&
+        typeof parsed.fileUrl === 'string'
+      ) {
         return {
           fileUrl: parsed.fileUrl,
           fileName:
-            typeof parsed.fileName === 'string' && parsed.fileName.trim().length > 0
+            typeof parsed.fileName === 'string' &&
+            parsed.fileName.trim().length > 0
               ? parsed.fileName
               : 'uploaded-file',
           fileType:
-            typeof parsed.fileType === 'string' && parsed.fileType.trim().length > 0
+            typeof parsed.fileType === 'string' &&
+            parsed.fileType.trim().length > 0
               ? parsed.fileType
               : this.detectFileType(parsed.fileUrl),
         };

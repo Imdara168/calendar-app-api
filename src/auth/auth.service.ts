@@ -47,7 +47,9 @@ export class AuthService implements OnModuleInit {
 
   async signup(dto: RegisterDto) {
     const username = dto.username.trim();
-    const existingUser = await this.usersRepository.findOne({ where: { username } });
+    const existingUser = await this.usersRepository.findOne({
+      where: { username },
+    });
 
     if (existingUser) {
       throw new ConflictException('Username already exists');
@@ -93,11 +95,17 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException('User not found');
     }
 
-    if (!user.resetPasswordToken || user.resetPasswordToken !== dto.resetToken) {
+    if (
+      !user.resetPasswordToken ||
+      user.resetPasswordToken !== dto.resetToken
+    ) {
       throw new UnauthorizedException('Invalid reset token');
     }
 
-    if (!user.resetPasswordExpiresAt || user.resetPasswordExpiresAt.getTime() < Date.now()) {
+    if (
+      !user.resetPasswordExpiresAt ||
+      user.resetPasswordExpiresAt.getTime() < Date.now()
+    ) {
       throw new UnauthorizedException('Reset token expired');
     }
 

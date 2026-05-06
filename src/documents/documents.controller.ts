@@ -30,22 +30,34 @@ export class DocumentsController {
   }
 
   @Post()
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateDocumentDto) {
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateDocumentDto,
+  ) {
     return this.documentsService.create(user.sub, dto);
   }
 
   @Post('folders')
-  createFolder(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateFolderDto) {
+  createFolder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateFolderDto,
+  ) {
     return this.documentsService.createFolder(user.sub, dto);
   }
 
   @Patch('folders')
-  updateFolder(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateFolderDto) {
+  updateFolder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateFolderDto,
+  ) {
     return this.documentsService.updateFolder(user.sub, dto);
   }
 
   @Delete('folders')
-  removeFolder(@CurrentUser() user: AuthenticatedUser, @Query('folderName') folderName: string) {
+  removeFolder(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('folderName') folderName: string,
+  ) {
     return this.documentsService.removeFolder(user.sub, folderName);
   }
 
@@ -59,7 +71,10 @@ export class DocumentsController {
   }
 
   @Delete(':id')
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number) {
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
     return this.documentsService.remove(user.sub, id);
   }
 }
