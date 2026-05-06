@@ -5,7 +5,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { DocumentEntity } from './document.entity';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
@@ -20,6 +20,17 @@ type ParsedDocumentPayload = {
   fileName: string;
   fileType: string;
   fileSize: number;
+};
+
+type StoredDocumentMetadata = {
+  fileUrl: string;
+  fileName?: string;
+  fileType?: string;
+  fileSize?: number;
+};
+
+type StoredReportReference = {
+  fileUrl: string;
 };
 
 type SyncDocumentInput = {
@@ -208,8 +219,10 @@ export class DocumentsService implements OnModuleInit {
       this.isFolderPlaceholder(document),
     );
 
-    if (!existingPlaceholder && existingDocuments.length === 0) {
-      const folder = this.documentsRepository.create({
+    let folderDocuments = existingDocuments;
+
+    if (!existingPlaceholder) {
+      const placeholder = this.documentsRepository.create({
         user,
         folderName,
         fileName: '',
@@ -217,22 +230,22 @@ export class DocumentsService implements OnModuleInit {
         date: null,
       });
 
-      await this.documentsRepository.save(folder);
+      const savedPlaceholder = await this.documentsRepository.save(placeholder);
+      folderDocuments = [...existingDocuments, savedPlaceholder];
     }
 
-    const folderDocuments =
-      existingDocuments.length > 0
-        ? existingDocuments
-        : await this.documentsRepository.find({
-            where: {
-              folderName,
-              user: { id: _userId },
-            },
-            relations: {
-              user: true,
-            },
-            order: { createdAt: 'ASC' },
-          });
+    if (folderDocuments.length === 0) {
+      folderDocuments = await this.documentsRepository.find({
+        where: {
+          folderName,
+          user: { id: _userId },
+        },
+        relations: {
+          user: true,
+        },
+        order: { createdAt: 'ASC' },
+      });
+    }
 
     return this.serializeFolder(folderName, folderDocuments);
   }
@@ -334,8 +347,26 @@ export class DocumentsService implements OnModuleInit {
       throw new NotFoundException('Folder not found');
     }
 
-    // Delete all documents in the folder (placeholders and actual files)
-    await this.documentsRepository.remove(folderDocuments);
+    const placeholderDocuments = folderDocuments.filter((document) =>
+      this.isFolderPlaceholder(document),
+    );
+    const actualFiles = folderDocuments.filter(
+      (document) => !this.isFolderPlaceholder(document),
+    );
+
+    if (actualFiles.length > 0) {
+      for (const document of actualFiles) {
+        document.folderName = '';
+      }
+
+      await this.documentsRepository.save(actualFiles);
+    }
+
+    if (placeholderDocuments.length > 0) {
+      await this.documentsRepository.delete({
+        id: In(placeholderDocuments.map((document) => document.id)),
+      });
+    }
 
     return { success: true };
   }
@@ -355,8 +386,48 @@ export class DocumentsService implements OnModuleInit {
       throw new NotFoundException('Document not found');
     }
 
-    await this.documentsRepository.remove(document);
+    await this.documentsRepository.delete(document.id);
     return { success: true };
+  }
+
+  async deleteUploadedFilesByUrls(userId: number, fileUrls: string[]) {
+    const normalizedFileUrls = fileUrls
+      .map((fileUrl) => fileUrl.trim())
+      .filter(Boolean);
+
+    if (normalizedFileUrls.length === 0) {
+      return { success: true, deletedCount: 0 };
+    }
+
+    const documents = await this.documentsRepository.find({
+      where: {
+        user: { id: userId },
+      },
+      relations: {
+        user: true,
+      },
+    });
+
+    const matchingDocumentIds = documents
+      .filter((document) => !this.isFolderPlaceholder(document))
+      .filter((document) => {
+        const payload = this.parseStoredDocument(
+          document.uploadedFile,
+          document.fileName,
+        );
+        return normalizedFileUrls.includes(payload.fileUrl);
+      })
+      .map((document) => document.id);
+
+    if (matchingDocumentIds.length === 0) {
+      return { success: true, deletedCount: 0 };
+    }
+
+    await this.documentsRepository.delete({
+      id: In(matchingDocumentIds),
+    });
+
+    return { success: true, deletedCount: matchingDocumentIds.length };
   }
 
   private async backfillMissingOwners() {
@@ -481,13 +552,9 @@ export class DocumentsService implements OnModuleInit {
     fallbackFileName: string,
   ): ParsedDocumentPayload {
     try {
-      const parsed = JSON.parse(uploadedFile);
+      const parsed: unknown = JSON.parse(uploadedFile);
 
-      if (
-        parsed &&
-        typeof parsed === 'object' &&
-        typeof parsed.fileUrl === 'string'
-      ) {
+      if (this.isStoredDocumentMetadata(parsed)) {
         return {
           fileUrl: parsed.fileUrl,
           fileName:
@@ -550,13 +617,9 @@ export class DocumentsService implements OnModuleInit {
 
   private parseStoredReport(uploadedReport: string) {
     try {
-      const parsed = JSON.parse(uploadedReport);
+      const parsed: unknown = JSON.parse(uploadedReport);
 
-      if (
-        parsed &&
-        typeof parsed === 'object' &&
-        typeof parsed.fileUrl === 'string'
-      ) {
+      if (this.isStoredReportReference(parsed)) {
         return {
           fileUrl: parsed.fileUrl,
         };
@@ -568,5 +631,27 @@ export class DocumentsService implements OnModuleInit {
     return {
       fileUrl: uploadedReport,
     };
+  }
+
+  private isStoredDocumentMetadata(
+    value: unknown,
+  ): value is StoredDocumentMetadata {
+    return (
+      this.isRecord(value) &&
+      typeof value.fileUrl === 'string' &&
+      (value.fileName === undefined || typeof value.fileName === 'string') &&
+      (value.fileType === undefined || typeof value.fileType === 'string') &&
+      (value.fileSize === undefined || typeof value.fileSize === 'number')
+    );
+  }
+
+  private isStoredReportReference(
+    value: unknown,
+  ): value is StoredReportReference {
+    return this.isRecord(value) && typeof value.fileUrl === 'string';
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
   }
 }

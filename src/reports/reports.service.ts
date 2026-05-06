@@ -1,11 +1,23 @@
 import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { ReportEntity } from './report.entity';
 import { CreateReportDto } from './dto/create-report.dto';
 import { CalendarEventEntity } from '../events/calendar-event.entity';
 import { DocumentsService } from '../documents/documents.service';
 import { UserEntity } from '../users/user.entity';
+
+type ParsedReportPayload = {
+  fileUrl: string;
+  fileName: string;
+  fileType: string;
+};
+
+type StoredReportMetadata = {
+  fileUrl: string;
+  fileName?: string;
+  fileType?: string;
+};
 
 @Injectable()
 export class ReportsService implements OnModuleInit {
@@ -105,7 +117,9 @@ export class ReportsService implements OnModuleInit {
     });
 
     if (matchingReports.length > 0) {
-      await this.reportsRepository.remove(matchingReports);
+      await this.reportsRepository.delete({
+        id: In(matchingReports.map((entry) => entry.id)),
+      });
     }
 
     const events = await this.eventsRepository.find({
@@ -181,15 +195,11 @@ export class ReportsService implements OnModuleInit {
     };
   }
 
-  private parseStoredReport(uploadedReport: string) {
+  private parseStoredReport(uploadedReport: string): ParsedReportPayload {
     try {
-      const parsed = JSON.parse(uploadedReport);
+      const parsed: unknown = JSON.parse(uploadedReport);
 
-      if (
-        parsed &&
-        typeof parsed === 'object' &&
-        typeof parsed.fileUrl === 'string'
-      ) {
+      if (this.isStoredReportMetadata(parsed)) {
         return {
           fileUrl: parsed.fileUrl,
           fileName:
@@ -213,6 +223,21 @@ export class ReportsService implements OnModuleInit {
       fileName: 'uploaded-file',
       fileType: this.detectFileType(uploadedReport),
     };
+  }
+
+  private isStoredReportMetadata(
+    value: unknown,
+  ): value is StoredReportMetadata {
+    return (
+      this.isRecord(value) &&
+      typeof value.fileUrl === 'string' &&
+      (value.fileName === undefined || typeof value.fileName === 'string') &&
+      (value.fileType === undefined || typeof value.fileType === 'string')
+    );
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
   }
 
   private detectFileType(fileUrl: string) {
