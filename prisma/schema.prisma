@@ -14,8 +14,10 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(6)
   slug      String   @unique @db.VarChar(255)
   fullname  String   @map("fulname") @db.VarChar(255)
+  themeColor String   @default("#1972FA") @map("theme_color") @db.VarChar(7)
 
-  events Event[]
+  events        Event[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -58,8 +60,27 @@ model Document {
   fileName     String   @map("file_name") @db.VarChar(255)
   uploadedFile String   @map("uploaded_file") @db.LongText
   date         String?  @db.VarChar(10)
+  description  String?  @db.Text
+  status       String   @default("Pending") @db.VarChar(50)
+  assignedToId Int?     @map("assigned_to_id")
+  viewerUserIds String?  @map("viewer_user_ids") @db.Text
+  userLink     Int?     @map("user_link")
   createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(6)
   updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(6)
 
   @@map("documents")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement()) @map("id")
+  userId    Int      @map("user_id")
+  message   String   @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "IDX_notifications_user_id")
+  @@map("notifications")
 }

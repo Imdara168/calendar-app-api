@@ -38,4 +38,16 @@ export class CreateDocumentDto {
   @IsString()
   @MaxLength(10)
   date?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
+  @IsOptional()
+  @IsNumber()
+  assignedToId?: number | null;
 }

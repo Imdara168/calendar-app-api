@@ -26,6 +26,25 @@ export class DocumentEntity {
   @Column({ name: 'date', type: 'varchar', length: 10, nullable: true })
   date: string | null;
 
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description: string | null;
+
+  @Column({ name: 'status', type: 'varchar', length: 50, default: 'Pending' })
+  status: string;
+
+  @Column({ name: 'assigned_to_id', type: 'int', nullable: true })
+  assignedToId: number | null;
+
+  @ManyToOne(() => UserEntity, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_to_id' })
+  assignedTo: UserEntity | null;
+
+  @Column({ name: 'workflow_owner_id', type: 'int', nullable: true })
+  workflowOwnerId: number | null;
+
+  @Column({ name: 'viewer_user_ids', type: 'simple-array', nullable: true })
+  viewerUserIds: string[] | null;
+
   @Column({ name: 'user_link', type: 'int', nullable: true })
   userLink: number | null;
 

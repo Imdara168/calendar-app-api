@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -14,6 +15,7 @@ import { UpdateFolderDto } from './dto/update-folder.dto';
 import { CalendarEventEntity } from '../events/calendar-event.entity';
 import { ReportEntity } from '../reports/report.entity';
 import { UserEntity } from '../users/user.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 type ParsedDocumentPayload = {
   fileUrl: string;
@@ -54,24 +56,37 @@ export class DocumentsService implements OnModuleInit {
     private readonly reportsRepository: Repository<ReportEntity>,
     @InjectRepository(UserEntity)
     private readonly usersRepository: Repository<UserEntity>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async onModuleInit() {
-    await this.backfillMissingOwners();
+    await this.backfillDocumentAccessMetadata();
   }
 
-  async findAll(userId: number) {
-    const documents = await this.documentsRepository.find({
-      where: {
-        user: { id: userId },
-      },
-      relations: {
-        user: true,
-      },
-      order: {
-        createdAt: 'DESC',
-      },
-    });
+  async findAll(userId: number, search?: string) {
+    const queryBuilder = this.documentsRepository.createQueryBuilder('document');
+    queryBuilder.where(
+      `(
+        document.user_link = :userId
+        OR document.assigned_to_id = :userId
+        OR FIND_IN_SET(:userIdString, COALESCE(document.viewer_user_ids, '')) > 0
+      )`,
+      { userId, userIdString: String(userId) },
+    );
+
+    if (search?.trim()) {
+      const normalizedSearch = `%${search.trim()}%`;
+      queryBuilder.andWhere(
+        '(document.file_name LIKE :search OR document.folder_name LIKE :search)',
+        { search: normalizedSearch },
+      );
+    }
+
+    queryBuilder.leftJoinAndSelect('document.user', 'user');
+    queryBuilder.leftJoinAndSelect('document.assignedTo', 'assignedTo');
+    queryBuilder.orderBy('document.created_at', 'DESC');
+
+    const documents = await queryBuilder.getMany();
 
     const files = documents
       .filter((document) => !this.isFolderPlaceholder(document))
@@ -98,6 +113,11 @@ export class DocumentsService implements OnModuleInit {
 
     const folderName = dto.folderName?.trim() ?? '';
     const fileName = dto.fileName.trim();
+    const assignedUser = await this.resolveAssignedUser(dto.assignedToId);
+    const viewerUserIds = this.mergeViewerUserIds([], [
+      user.id,
+      assignedUser?.id,
+    ]);
 
     const document = this.documentsRepository.create({
       user,
@@ -110,10 +130,24 @@ export class DocumentsService implements OnModuleInit {
         fileSize: dto.fileSize ?? this.estimateFileSize(fileUrl),
       }),
       date: dto.date ?? null,
+      description: dto.description ?? null,
+      status: dto.status ?? 'Pending',
+      assignedToId: assignedUser?.id ?? null,
+      assignedTo: assignedUser ?? null,
+      workflowOwnerId: user.id,
+      viewerUserIds,
     });
 
     const saved = await this.documentsRepository.save(document);
-    return this.serializeFile(saved);
+
+    if (assignedUser && assignedUser.id !== userId) {
+      await this.notificationsService.create(
+        assignedUser.id,
+        `${user.fullname || user.username} assigned this work to you: ${fileName}`,
+      );
+    }
+
+    return this.findDocumentForResponse(saved.id);
   }
 
   async syncUploadedFile(input: SyncDocumentInput) {
@@ -173,9 +207,19 @@ export class DocumentsService implements OnModuleInit {
       if (folderName) {
         existingDocument.folderName = folderName;
       }
+      existingDocument.workflowOwnerId =
+        existingDocument.workflowOwnerId ??
+        existingDocument.assignedToId ??
+        existingDocument.userLink ??
+        existingDocument.user?.id ??
+        input.userId;
+      existingDocument.viewerUserIds = this.mergeViewerUserIds(
+        existingDocument.viewerUserIds,
+        [existingDocument.user?.id, existingDocument.assignedToId],
+      );
 
       const saved = await this.documentsRepository.save(existingDocument);
-      return this.serializeFile(saved);
+      return this.findDocumentForResponse(saved.id);
     }
 
     const document = this.documentsRepository.create({
@@ -189,10 +233,12 @@ export class DocumentsService implements OnModuleInit {
         fileSize: input.fileSize ?? this.estimateFileSize(fileUrl),
       }),
       date: input.date ?? null,
+      workflowOwnerId: user.id,
+      viewerUserIds: this.mergeViewerUserIds([], [user.id]),
     });
 
     const saved = await this.documentsRepository.save(document);
-    return this.serializeFile(saved);
+    return this.findDocumentForResponse(saved.id);
   }
 
   async createFolder(_userId: number, dto: CreateFolderDto) {
@@ -228,6 +274,8 @@ export class DocumentsService implements OnModuleInit {
         fileName: '',
         uploadedFile: '',
         date: null,
+        workflowOwnerId: user.id,
+        viewerUserIds: this.mergeViewerUserIds([], [user.id]),
       });
 
       const savedPlaceholder = await this.documentsRepository.save(placeholder);
@@ -312,10 +360,10 @@ export class DocumentsService implements OnModuleInit {
     const document = await this.documentsRepository.findOne({
       where: {
         id,
-        user: { id: _userId },
       },
       relations: {
         user: true,
+        assignedTo: true,
       },
     });
 
@@ -323,10 +371,125 @@ export class DocumentsService implements OnModuleInit {
       throw new NotFoundException('Document not found');
     }
 
-    document.folderName = dto.folderName?.trim() ?? '';
+    const isOwner = document.user?.id === _userId;
+    const workflowOwnerId = this.getEffectiveWorkflowOwnerId(document);
+    const isWorkflowOwner = workflowOwnerId === _userId;
+    const isCurrentAssignee = document.assignedToId === _userId;
+    const canEditDocument = isWorkflowOwner || isCurrentAssignee;
+
+    if (
+      !isOwner &&
+      document.assignedToId !== _userId &&
+      !document.viewerUserIds?.includes(String(_userId))
+    ) {
+      throw new NotFoundException('Document not found');
+    }
+
+    if (dto.folderName !== undefined) {
+      if (!isOwner) {
+        throw new BadRequestException(
+          'Only the file owner can move this document',
+        );
+      }
+
+      document.folderName = dto.folderName?.trim() ?? '';
+    }
+
+    if (dto.description !== undefined) {
+      if (!canEditDocument) {
+        throw new ForbiddenException(
+          'Only the workflow owner or current assignee can edit the description',
+        );
+      }
+
+      document.description = dto.description;
+    }
+
+    if (dto.status !== undefined) {
+      if (!canEditDocument) {
+        throw new ForbiddenException(
+          'Only the workflow owner or current assignee can update the status',
+        );
+      }
+
+      document.status = dto.status;
+    }
+
+    if (dto.assignedToId !== undefined) {
+      if (!canEditDocument) {
+        throw new ForbiddenException(
+          'Only the workflow owner or current assignee can reassign this document',
+        );
+      }
+
+      const previousAssignedToId = document.assignedToId;
+      const assignedUser = await this.resolveAssignedUser(dto.assignedToId);
+
+      document.assignedToId = assignedUser?.id ?? null;
+      document.assignedTo = assignedUser ?? null;
+      if (
+        previousAssignedToId === _userId &&
+        assignedUser &&
+        assignedUser.id !== previousAssignedToId
+      ) {
+        document.workflowOwnerId = _userId;
+      } else if (document.workflowOwnerId == null) {
+        document.workflowOwnerId = workflowOwnerId;
+      }
+      document.viewerUserIds = this.mergeViewerUserIds(
+        document.viewerUserIds,
+        [document.user?.id, previousAssignedToId, assignedUser?.id, _userId],
+      );
+
+      if (assignedUser && assignedUser.id !== previousAssignedToId && assignedUser.id !== _userId) {
+        const actingUser = await this.usersRepository.findOne({ where: { id: _userId } });
+        await this.notificationsService.create(
+          assignedUser.id,
+          `${actingUser?.fullname || actingUser?.username || 'Someone'} assigned this work to you: ${document.fileName}`,
+        );
+      }
+    }
+
+    if (dto.uploadedFile !== undefined || dto.fileName !== undefined) {
+      if (!canEditDocument) {
+        throw new ForbiddenException(
+          'Only the workflow owner or current assignee can replace this document',
+        );
+      }
+
+      const currentPayload = this.parseStoredDocument(
+        document.uploadedFile,
+        document.fileName,
+      );
+
+      const fileName = dto.fileName?.trim() || currentPayload.fileName;
+      const fileUrl = dto.uploadedFile || currentPayload.fileUrl;
+
+      document.fileName = fileName;
+      document.uploadedFile = JSON.stringify({
+        fileUrl,
+        fileName,
+        fileType: dto.fileType || currentPayload.fileType,
+        fileSize: dto.fileSize || currentPayload.fileSize,
+      });
+    }
 
     const saved = await this.documentsRepository.save(document);
-    return this.serializeFile(saved);
+    console.log('[DocumentsService] Database update result', {
+      documentId: saved.id,
+      persistedAssignedToId: saved.assignedToId ?? null,
+      persistedWorkflowOwnerId:
+        saved.workflowOwnerId ??
+        saved.assignedToId ??
+        saved.userLink ??
+        saved.user?.id ??
+        null,
+      persistedDescription: saved.description ?? null,
+      persistedStatus: saved.status,
+      persistedViewerUserIds: saved.viewerUserIds ?? [],
+      updatedByUserId: _userId,
+    });
+    return this.findDocumentForResponse(saved.id);
   }
 
   async removeFolder(_userId: number, folderName: string) {
@@ -430,7 +593,7 @@ export class DocumentsService implements OnModuleInit {
     return { success: true, deletedCount: matchingDocumentIds.length };
   }
 
-  private async backfillMissingOwners() {
+  private async backfillDocumentAccessMetadata() {
     const orphanDocuments = await this.documentsRepository.find({
       where: { userLink: IsNull() },
     });
@@ -482,6 +645,29 @@ export class DocumentsService implements OnModuleInit {
 
     if (documentsToUpdate.length > 0) {
       await this.documentsRepository.save(documentsToUpdate);
+    }
+
+    const workflowOwnerlessDocuments = await this.documentsRepository.find({
+      where: { workflowOwnerId: IsNull() },
+      relations: {
+        user: true,
+      },
+    });
+
+    const workflowOwnerUpdates = workflowOwnerlessDocuments.filter((document) => {
+      const fallbackWorkflowOwnerId =
+        document.assignedToId ?? document.userLink ?? document.user?.id ?? null;
+
+      if (!fallbackWorkflowOwnerId) {
+        return false;
+      }
+
+      document.workflowOwnerId = fallbackWorkflowOwnerId;
+      return true;
+    });
+
+    if (workflowOwnerUpdates.length > 0) {
+      await this.documentsRepository.save(workflowOwnerUpdates);
     }
   }
 
@@ -540,11 +726,85 @@ export class DocumentsService implements OnModuleInit {
       size: payload.fileSize,
       url: payload.fileUrl,
       uploadedAt: document.createdAt,
+      ownerId: document.userLink ?? document.user?.id ?? undefined,
+      workflowOwnerId: this.getEffectiveWorkflowOwnerId(document) ?? undefined,
       folderId: document.folderName?.trim() || undefined,
       date: document.date,
+      description: document.description,
+      status: document.status,
+      assignedTo: document.assignedTo
+        ? {
+            id: document.assignedTo.id,
+            username: document.assignedTo.username,
+            fullname: document.assignedTo.fullname,
+          }
+        : null,
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     };
+  }
+
+  private async resolveAssignedUser(
+    assignedToId?: number | null,
+  ): Promise<UserEntity | null | undefined> {
+    if (assignedToId === undefined) {
+      return undefined;
+    }
+
+    if (assignedToId === null) {
+      return null;
+    }
+
+    const assignedUser = await this.usersRepository.findOne({
+      where: { id: assignedToId },
+    });
+
+    if (!assignedUser) {
+      throw new NotFoundException('Assigned user not found');
+    }
+
+    return assignedUser;
+  }
+
+  private async findDocumentForResponse(id: number) {
+    const document = await this.documentsRepository.findOne({
+      where: { id },
+      relations: {
+        user: true,
+        assignedTo: true,
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    return this.serializeFile(document);
+  }
+
+  private getEffectiveWorkflowOwnerId(document: DocumentEntity) {
+    return (
+      document.workflowOwnerId ??
+      document.assignedToId ??
+      document.userLink ??
+      document.user?.id ??
+      null
+    );
+  }
+
+  private mergeViewerUserIds(
+    existingViewerUserIds: string[] | null | undefined,
+    userIds: Array<number | null | undefined>,
+  ) {
+    const merged = new Set(existingViewerUserIds ?? []);
+
+    for (const userId of userIds) {
+      if (typeof userId === 'number') {
+        merged.add(String(userId));
+      }
+    }
+
+    return Array.from(merged);
   }
 
   private parseStoredDocument(

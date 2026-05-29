@@ -9,7 +9,6 @@ import { CalendarEventEntity, EventAttachment } from './calendar-event.entity';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { UserEntity } from '../users/user.entity';
-import { resolveEventStatus } from '../common/event-status.util';
 import { ReportEntity } from '../reports/report.entity';
 import { DocumentsService } from '../documents/documents.service';
 
@@ -39,23 +38,19 @@ export class EventsService {
         user: true,
       },
       order: {
-        date: 'ASC',
-        startTime: 'ASC',
+        startDate: 'ASC',
       },
     });
 
-    const refreshedEvents = await Promise.all(
-      events.map((event) => this.refreshStatus(event)),
-    );
-
-    return refreshedEvents
+    return events
       .filter((event) => {
+        const eventDateStr = event.startDate.toISOString().slice(0, 10);
         if (date) {
-          return event.date === date;
+          return eventDateStr === date;
         }
 
         if (startDate && endDate) {
-          return event.date >= startDate && event.date <= endDate;
+          return eventDateStr >= startDate && eventDateStr <= endDate;
         }
 
         return true;
@@ -73,10 +68,8 @@ export class EventsService {
     const event = this.eventsRepository.create({
       title: dto.title.trim(),
       description: dto.description?.trim() ?? '',
-      date: dto.date,
-      startTime: dto.startTime,
-      endTime: dto.endTime,
-      status: resolveEventStatus(dto.date, dto.startTime, dto.endTime),
+      startDate: new Date(dto.startDate),
+      endDate: new Date(dto.endDate),
       category: dto.category,
       user,
       attendees: dto.attendees.map((name) => name.trim()),
@@ -84,7 +77,11 @@ export class EventsService {
     });
 
     const saved = await this.eventsRepository.save(event);
-    await this.syncAttachmentsToReports(userId, saved.attachments, saved.date);
+    await this.syncAttachmentsToReports(
+      userId,
+      saved.attachments,
+      saved.startDate,
+    );
     return this.serializeEvent(saved);
   }
 
@@ -99,16 +96,12 @@ export class EventsService {
       event.description = dto.description.trim();
     }
 
-    if (dto.date !== undefined) {
-      event.date = dto.date;
+    if (dto.startDate !== undefined) {
+      event.startDate = new Date(dto.startDate);
     }
 
-    if (dto.startTime !== undefined) {
-      event.startTime = dto.startTime;
-    }
-
-    if (dto.endTime !== undefined) {
-      event.endTime = dto.endTime;
+    if (dto.endDate !== undefined) {
+      event.endDate = new Date(dto.endDate);
     }
 
     if (dto.category !== undefined) {
@@ -119,22 +112,41 @@ export class EventsService {
       event.attendees = dto.attendees.map((name) => name.trim());
     }
 
+    const oldAttachments = [...(event.attachments || [])];
+
     if (dto.attachments !== undefined) {
       event.attachments = this.normalizeAttachments(dto.attachments);
     }
 
-    event.status = resolveEventStatus(
-      event.date,
-      event.startTime,
-      event.endTime,
-    );
-
-    if (dto.attachments !== undefined || dto.date !== undefined) {
+    if (dto.attachments !== undefined || dto.startDate !== undefined) {
       await this.syncAttachmentsToReports(
         userId,
         event.attachments,
-        event.date,
+        event.startDate,
       );
+    }
+
+    if (dto.attachments !== undefined) {
+      const removedAttachments = oldAttachments.filter(
+        (old) =>
+          !event.attachments.some((curr) => curr.fileUrl === old.fileUrl),
+      );
+
+      if (removedAttachments.length > 0) {
+        const fileUrlsToDelete = await this.getOrphanedAttachmentFileUrls(
+          userId,
+          eventId,
+          removedAttachments,
+        );
+
+        if (fileUrlsToDelete.length > 0) {
+          await this.deleteReportsByFileUrls(userId, fileUrlsToDelete);
+          await this.documentsService.deleteUploadedFilesByUrls(
+            userId,
+            fileUrlsToDelete,
+          );
+        }
+      }
     }
 
     const saved = await this.eventsRepository.save(event);
@@ -180,19 +192,18 @@ export class EventsService {
     return event;
   }
 
-  private async refreshStatus(event: CalendarEventEntity) {
-    const nextStatus = resolveEventStatus(
-      event.date,
-      event.startTime,
-      event.endTime,
-    );
+  private getEventStatus(startDate: Date, endDate: Date): string {
+    const today = new Date();
 
-    if (nextStatus !== event.status) {
-      event.status = nextStatus;
-      return this.eventsRepository.save(event);
+    if (today < startDate) {
+      return 'upcoming';
     }
 
-    return event;
+    if (today >= startDate && today <= endDate) {
+      return 'in-progress';
+    }
+
+    return 'completed';
   }
 
   private serializeEvent(event: CalendarEventEntity) {
@@ -200,10 +211,9 @@ export class EventsService {
       id: event.id,
       title: event.title,
       description: event.description,
-      date: event.date,
-      startTime: event.startTime,
-      endTime: event.endTime,
-      status: event.status,
+      startDate: event.startDate.toISOString(),
+      endDate: event.endDate.toISOString(),
+      status: this.getEventStatus(event.startDate, event.endDate),
       category: event.category,
       createdAt: event.createdAt,
       updatedAt: event.updatedAt,
@@ -227,13 +237,15 @@ export class EventsService {
   private async syncAttachmentsToReports(
     userId: number,
     attachments: EventAttachment[] | null | undefined,
-    date: string,
+    startDate: Date,
   ) {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
 
     if (!user) {
       throw new ForbiddenException('User not found');
     }
+
+    const dateStr = startDate.toISOString().slice(0, 10);
 
     for (const attachment of this.normalizeAttachments(attachments)) {
       const existing = await this.findReportByFileUrl(
@@ -244,7 +256,7 @@ export class EventsService {
       if (!existing) {
         const report = this.reportsRepository.create({
           user,
-          date,
+          date: dateStr,
           uploadedReport: JSON.stringify({
             fileUrl: attachment.fileUrl,
             fileName: attachment.fileName,
@@ -254,7 +266,7 @@ export class EventsService {
 
         await this.reportsRepository.save(report);
       } else {
-        existing.date = date;
+        existing.date = dateStr;
         existing.uploadedReport = JSON.stringify({
           fileUrl: attachment.fileUrl,
           fileName: attachment.fileName,
@@ -269,7 +281,7 @@ export class EventsService {
         fileName: attachment.fileName,
         fileType: attachment.fileType,
         fileSize: attachment.fileSize,
-        date,
+        date: dateStr,
       });
     }
   }

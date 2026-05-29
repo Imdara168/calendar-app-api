@@ -39,14 +39,11 @@ export class CreateEventDto {
   @MaxLength(1000)
   description?: string;
 
-  @Matches(/^\d{4}-\d{2}-\d{2}$/)
-  date: string;
+  @IsNotEmpty()
+  startDate: string;
 
-  @Matches(/^\d{2}:\d{2}$/)
-  startTime: string;
-
-  @Matches(/^\d{2}:\d{2}$/)
-  endTime: string;
+  @IsNotEmpty()
+  endDate: string;
 
   @IsString()
   @IsNotEmpty()

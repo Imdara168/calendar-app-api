@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../common/jwt-auth.guard';
       useFactory: (configService: ConfigService) => ({
         secret:
           configService.get<string>('JWT_SECRET') ?? 'calendar-secret-key',
-        signOptions: { expiresIn: '7d' },
+        signOptions: { expiresIn: '1d' },
       }),
     }),
   ],

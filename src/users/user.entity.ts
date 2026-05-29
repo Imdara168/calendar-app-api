@@ -2,9 +2,11 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { NotificationEntity } from '../notifications/notification.entity';
 
 @Entity({ name: 'users' })
 export class UserEntity {
@@ -43,4 +45,10 @@ export class UserEntity {
 
   @Column({ name: 'fulname' })
   fullname: string;
+
+  @Column({ name: 'theme_color', default: '#1972FA' })
+  themeColor: string;
+
+  @OneToMany(() => NotificationEntity, (notification) => notification.user)
+  notifications: NotificationEntity[];
 }

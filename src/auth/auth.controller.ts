@@ -4,6 +4,7 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateFullnameDto } from './dto/update-fullname.dto';
 import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from '../common/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -42,9 +43,33 @@ export class AuthController {
     return this.authService.updatePassword(user.sub, dto);
   }
 
+  @Post('profile/theme-color')
+  @UseGuards(JwtAuthGuard)
+  updateThemeColor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('themeColor') themeColor: string,
+  ) {
+    return this.authService.updateThemeColor(user.sub, themeColor);
+  }
+
+  @Post('profile/fullname')
+  @UseGuards(JwtAuthGuard)
+  updateFullname(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateFullnameDto,
+  ) {
+    return this.authService.updateFullname(user.sub, dto.fullname);
+  }
+
   @Get('me')
   @UseGuards(JwtAuthGuard)
   getProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.authService.getProfile(user.sub);
+  }
+
+  @Get('users')
+  @UseGuards(JwtAuthGuard)
+  getUsers() {
+    return this.authService.getUsers();
   }
 }

@@ -56,23 +56,14 @@ export class CalendarEventEntity {
   @Column({ default: '' })
   description: string;
 
-  @Column()
-  date: string;
+  @Column({ name: 'start_date', type: 'datetime', nullable: true })
+  startDate: Date;
 
-  @Column({ name: 'start_time' })
-  startTime: string;
-
-  @Column({ name: 'end_time' })
-  endTime: string;
-
-  @Column()
-  status: string;
+  @Column({ name: 'end_date', type: 'datetime', nullable: true })
+  endDate: Date;
 
   @Column()
   category: string;
-
-  @Column({ name: 'user_link', type: 'int' })
-  userLink: number;
 
   @Column({ name: 'event_attendees', type: 'simple-json', nullable: true })
   attendees: string[];
@@ -88,6 +79,9 @@ export class CalendarEventEntity {
     },
   })
   attachments: EventAttachment[];
+
+  @Column({ name: 'user_link', nullable: true })
+  userLink: number;
 
   @ManyToOne(() => UserEntity, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_link' })

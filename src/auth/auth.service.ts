@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   OnModuleInit,
@@ -155,6 +156,38 @@ export class AuthService implements OnModuleInit {
     };
   }
 
+  async updateThemeColor(userId: number, themeColor: string) {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    user.themeColor = themeColor;
+    await this.usersRepository.save(user);
+
+    return this.serializeUser(user);
+  }
+
+  async updateFullname(userId: number, fullname: string) {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const trimmedFullname = fullname.trim();
+
+    if (!trimmedFullname) {
+      throw new BadRequestException('Nickname cannot be empty');
+    }
+
+    user.fullname = trimmedFullname;
+    await this.usersRepository.save(user);
+
+    return this.serializeUser(user);
+  }
+
   async getProfile(userId: number) {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
 
@@ -163,6 +196,11 @@ export class AuthService implements OnModuleInit {
     }
 
     return this.serializeUser(user);
+  }
+
+  async getUsers() {
+    const users = await this.usersRepository.find();
+    return users.map((user) => this.serializeUser(user));
   }
 
   async ensureAdminUser() {
@@ -214,6 +252,7 @@ export class AuthService implements OnModuleInit {
       username: user.username,
       slug: user.slug,
       fullname: user.fullname,
+      themeColor: user.themeColor || '#1972FA',
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

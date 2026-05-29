@@ -25,8 +25,11 @@ export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   @Get()
-  findAll(@CurrentUser() user: AuthenticatedUser) {
-    return this.documentsService.findAll(user.sub);
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('search') search?: string,
+  ) {
+    return this.documentsService.findAll(user.sub, search);
   }
 
   @Post()
@@ -67,6 +70,14 @@ export class DocumentsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateDocumentDto,
   ) {
+    console.log('[DocumentsController] Received update payload', {
+      documentId: id,
+      authenticatedUserId: user.sub,
+      assignedToId: dto.assignedToId ?? null,
+      description: dto.description ?? null,
+      status: dto.status ?? null,
+      hasUploadedFile: dto.uploadedFile !== undefined,
+    });
     return this.documentsService.update(user.sub, id, dto);
   }
 

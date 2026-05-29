@@ -7,6 +7,7 @@ import { DocumentsService } from './documents.service';
 import { CalendarEventEntity } from '../events/calendar-event.entity';
 import { ReportEntity } from '../reports/report.entity';
 import { UserEntity } from '../users/user.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { UserEntity } from '../users/user.entity';
       UserEntity,
     ]),
     AuthModule,
+    NotificationsModule,
   ],
   controllers: [DocumentsController],
   providers: [DocumentsService],

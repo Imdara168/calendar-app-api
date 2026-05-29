@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EventsModule } from './events/events.module';
 import { ReportsModule } from './reports/reports.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ReportsModule } from './reports/reports.module';
     DocumentsModule,
     EventsModule,
     ReportsModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
 })
